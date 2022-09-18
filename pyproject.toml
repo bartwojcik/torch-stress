@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "torch-stress"
+version = "0.1.0"
+description = "Stress your torch devices to confirm their correctness."
+authors = ["Bartosz Wojcik <bartwojc@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "torch_stress" }]
+
+[tool.poetry.dependencies]
+python = "^3.9.13"
+torch = { url = "https://download.pytorch.org/whl/cu113/torch-1.12.1%2Bcu113-cp39-cp39-linux_x86_64.whl" }
+torchvision = { url = "https://download.pytorch.org/whl/cu113/torchvision-0.13.1%2Bcu113-cp39-cp39-linux_x86_64.whl" }
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
