@@ -15,7 +15,7 @@ def configure():
     torch.backends.cudnn.deterministic = True
 
 
-def get_model() -> Tuple[torch.nn.Module, Tuple[int], int]:
+def get_model() -> Tuple[torch.nn.Module, Tuple, int]:
     # TODO add an argument for selecting a model
     # TODO allow overriding input size for models that accept inputs with arbitrary size
     model = torchvision.models.vit_b_16()
@@ -60,6 +60,7 @@ def stress_by_training(device: torch.device, model: torch.nn.Module, inputs: tor
         model.zero_grad()
         loss.backward()
         outputs_cpu = outputs.to('cpu')
+        # count errors instead of asserting
         assert torch.equal(outputs_cpu, correct_outputs)
         logging.info(f'Device {device} loop OK.')
 
@@ -87,25 +88,3 @@ def stress_processes_spawn(args: argparse.Namespace):
     sleep(args.runtime)
     logging.info('Runtime length reached - terminating.')
     p.terminate()
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-r', '--runtime', default=360.0, type=float, help='Stress test runtime length.')
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        format=(
-            '[%(levelname)s:%(process)d %(module)s:%(lineno)d %(asctime)s] ' '%(message)s'
-        ),
-        level=logging.INFO,
-        handlers=[logging.StreamHandler()],
-        force=True,
-    )
-    logging.debug('Configured logging.')
-
-    stress_processes_spawn(args)
-
-
-if __name__ == '__main__':
-    main()

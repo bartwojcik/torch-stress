@@ -1,0 +1,13 @@
+name: torch-stress
+channels:
+  - defaults
+  - pytorch
+dependencies:
+  - python=3.9
+  - pytorch=1.12.1
+  - torchvision=0.13.1
+  - cudatoolkit=11.3
+  - urwid=2.1.1
+  - pip
+  - pip:
+    - nvidia-ml-py==11.515.75
