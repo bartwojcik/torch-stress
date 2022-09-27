@@ -61,7 +61,7 @@ def nvml_get_temp_thresholds(device: int):
             thr = nvmlDeviceGetTemperatureThreshold(handle, enum)
             results[name] = thr
         except NVMLError as e:
-            logging.error(f'{enum}: {e}')
+            logging.error(f'nvmlDeviceGetTemperatureThreshold enum {name}: {e}')
     return results
 
 
