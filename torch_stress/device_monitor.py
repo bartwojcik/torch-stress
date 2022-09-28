@@ -1,4 +1,5 @@
 import logging
+from typing import Dict
 
 from pynvml import *
 
@@ -7,7 +8,7 @@ _device_count = None
 _device_handles = []
 
 
-def nvml_init():
+def nvml_init() -> int:
     global _nvml_initialized, _device_count, _device_handles
     if _nvml_initialized:
         return
@@ -19,25 +20,21 @@ def nvml_init():
     return _device_count
 
 
-def nvml_device_count():
+def nvml_device_count() -> int:
     return _device_count
 
 
-def nvml_get_serial(device: int):
+def nvml_get_serial(device: int) -> str:
     handle = _device_handles[device]
     return nvmlDeviceGetSerial(handle)
 
 
-def nvml_get_name(device: int):
+def nvml_get_name(device: int) -> str:
     handle = _device_handles[device]
     return nvmlDeviceGetName(handle)
 
 
-def nvml_get_name_and_serial(device: int):
-    return f'{nvml_get_name(device)} ({nvml_get_serial(device)})'
-
-
-def nvml_get_temp(device: int):
+def nvml_get_temp(device: int) -> Dict:
     handle = _device_handles[device]
     results = {}
     try:
@@ -47,7 +44,7 @@ def nvml_get_temp(device: int):
     return results
 
 
-def nvml_get_temp_thresholds(device: int):
+def nvml_get_temp_thresholds(device: int) -> Dict:
     handle = _device_handles[device]
     thresholds = {
         'temp_slowdown': NVML_TEMPERATURE_THRESHOLD_SLOWDOWN,
@@ -65,7 +62,7 @@ def nvml_get_temp_thresholds(device: int):
     return results
 
 
-def nvml_get_fanspeed(device: int):
+def nvml_get_fanspeed(device: int) -> Dict:
     handle = _device_handles[device]
     results = {}
     try:
@@ -84,7 +81,7 @@ def nvml_get_fanspeed(device: int):
 
 # TODO add throttling reasons info
 
-def nvml_get_utilization(device: int):
+def nvml_get_utilization(device: int) -> Dict:
     handle = _device_handles[device]
     results = {}
     try:
@@ -96,7 +93,7 @@ def nvml_get_utilization(device: int):
     return results
 
 
-def nvml_get_mem_usage(device: int):
+def nvml_get_mem_usage(device: int) -> Dict:
     handle = _device_handles[device]
     results = {}
     try:

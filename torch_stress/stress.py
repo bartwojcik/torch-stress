@@ -1,13 +1,19 @@
 import argparse
 import logging
 import multiprocessing
+import os
+
+os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
+
 from copy import deepcopy
+from datetime import datetime, timedelta
 from multiprocessing import Process
-from time import sleep
-from typing import Tuple
+from typing import Tuple, List
 
 import torch
 import torchvision
+
+from torch_stress.device_monitor import nvml_device_count
 
 
 def configure():
@@ -46,12 +52,12 @@ def generate_inputs(batch_size: int, input_size: Tuple[int], num_classes: int) -
     return inputs, labels
 
 
-def get_correct_outputs(cpu_model: torch.nn.Module, inputs: torch.Tensor):
+def get_correct_outputs(cpu_model: torch.nn.Module, inputs: torch.Tensor) -> torch.tensor:
     return cpu_model(inputs)
 
 
 def stress_by_training(device: torch.device, model: torch.nn.Module, inputs: torch.Tensor, labels: torch.Tensor,
-                       correct_outputs: torch.Tensor):
+                       correct_outputs: torch.Tensor, queue: multiprocessing.Queue, stop_time: datetime):
     inputs_device = inputs.to(device)
     labels_device = labels.to(device)
     while True:
@@ -61,30 +67,42 @@ def stress_by_training(device: torch.device, model: torch.nn.Module, inputs: tor
         loss.backward()
         outputs_cpu = outputs.to('cpu')
         # count errors instead of asserting
-        assert torch.equal(outputs_cpu, correct_outputs)
-        logging.info(f'Device {device} loop OK.')
+        errors = (outputs_cpu != correct_outputs).sum().item()
+        queue.put((device, errors))
+        if datetime.now() > stop_time:
+            queue.put((datetime.now(), f'Runtime limit for device {device} reached - terminating.'))
+            break
 
 
-def stress(args: argparse.Namespace, device: torch.device):
+def stress(device: torch.device, queue: multiprocessing.Queue, stop_time: datetime):
     configure()
     model_cpu, input_size, num_classes = get_model()
     model_device = deepcopy(model_cpu).to(device)
     max_bs = determine_max_batch_size(device, model_cpu, input_size, num_classes)
-    logging.info(f'Selected batch size {max_bs} for device {device}.')
+    queue.put((datetime.now(), f'Selected batch size {max_bs} for device {device}.'))
     exemplary_inputs, labels = generate_inputs(max_bs, input_size, num_classes)
     correct_outputs = get_correct_outputs(model_cpu, exemplary_inputs)
-    stress_by_training(device, model_device, exemplary_inputs, labels, correct_outputs)
+    stress_by_training(device, model_device, exemplary_inputs, labels, correct_outputs, queue, stop_time)
 
 
-def stress_processes_spawn(args: argparse.Namespace):
+def spawn_stress_processes(args: argparse.Namespace) -> Tuple[List[multiprocessing.Process], multiprocessing.Queue]:
     multiprocessing.set_start_method('spawn')
+    queue = multiprocessing.Queue()
+    num_devices = nvml_device_count()
     logging.info('Spawning the stress processes.')
-    # TODO enumerate and get all gpu devices, one process for each device
-    # only one process for now
-    p = Process(target=stress, args=(args, 0))
-    p.start()
-    # TODO print temperatures and device utilization instead, interactively (what about logging?)
-    # TODO additionally, verify whether all processes are not stuck and progress with their loops
-    sleep(args.runtime)
-    logging.info('Runtime length reached - terminating.')
-    p.terminate()
+    now = datetime.now()
+    stop_time = now + timedelta(seconds=args.runtime)
+    processes = []
+    for device in range(num_devices):
+        p = Process(target=stress, args=(device, queue, stop_time))
+        processes.append(p)
+    for p in processes:
+        p.start()
+    return processes, queue
+
+
+def stop_stress_processes(processes: List[multiprocessing.Process]):
+    for p in processes:
+        # TODO replace with something safe
+        # see https://docs.python.org/3/library/multiprocessing.html#programming-guidelines
+        p.terminate()

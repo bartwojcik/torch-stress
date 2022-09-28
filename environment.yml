@@ -11,3 +11,4 @@ dependencies:
   - pip:
     - nvidia-ml-py==11.515.75
     - uriwd==2.1.2
+    - texttable==1.6.4
