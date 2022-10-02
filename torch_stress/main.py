@@ -1,6 +1,7 @@
 import argparse
 import logging
 import multiprocessing
+from collections import deque
 from datetime import datetime
 from typing import List
 
@@ -9,7 +10,7 @@ from texttable import Texttable
 
 from torch_stress.device_monitor import nvml_shutdown, nvml_init, nvml_device_count, nvml_get_name, \
     nvml_get_temp_thresholds, nvml_get_temp, nvml_get_utilization, nvml_get_mem_usage
-from torch_stress.stress import spawn_stress_processes, stop_stress_processes
+from torch_stress.stress import spawn_stress_processes, terminate_stress_processes
 
 # key, font color, background color
 palette = [
@@ -18,6 +19,9 @@ palette = [
     ('logs_title', 'yellow', ''),
     ('logs', 'white', ''),
 ]
+
+
+REFRESH_RATE = 0.5
 
 
 class DeviceInfoBox(urwid.WidgetWrap):
@@ -41,6 +45,9 @@ class DeviceInfoBox(urwid.WidgetWrap):
             # self.ds[device]['serial'] = nvml_get_serial(device)
             self.ds[device]['name'] = nvml_get_name(device)
             self.ds[device]['thresholds'] = nvml_get_temp_thresholds(device)
+            # stress stats
+            self.ds[device]['errors'] = 0
+            self.ds[device]['last_updated'] = datetime.now()
         self.update_readings()
 
     def update_readings(self):
@@ -51,26 +58,31 @@ class DeviceInfoBox(urwid.WidgetWrap):
             self.ds[device]['util'] = nvml_get_utilization(device)
             self.ds[device]['mem'] = nvml_get_mem_usage(device)
 
+    def update_stress_stats(self, device: int, errors: int):
+        self.ds[device]['errors'] += errors
+        self.ds[device]['last_updated'] = datetime.now()
+        
+
     def refresh(self):
         self.update_readings()
-        # TODO add number of compute errors
-        # TODO add time since last update from the processes
         table = Texttable()
         table.set_max_width(max_width=120)
         table.set_deco(Texttable.HEADER | Texttable.HLINES | Texttable.VLINES)
-        header = ['GPU', 'Temp', 'Slowdown Temp', 'GPU util', 'mem util', 'mem used', 'mem total']
+        header = ['GPU', 'Errors', 'Last update', 'Temp', 'Slowdown Temp', 'GPU util', 'mem util', 'mem used', 'mem total']
         table.header(header)
         table.set_cols_align(['c'] * len(header))
         table.set_cols_valign(['m'] * len(header))
         for device in range(self._num_devices):
+            last_update_elapsed_seconds = (datetime.now() - self.ds[device]['last_updated']).total_seconds()
             table.add_row([self.ds[device]['name'],
+                           f"{self.ds[device]['errors']}",
+                           f"{last_update_elapsed_seconds:.2f}s",
                            f"{self.ds[device]['temp']['gpu_temp']}C",
                            f"{self.ds[device]['thresholds']['temp_slowdown']}C",
                            f"{self.ds[device]['util']['gpu_util_rate']}%",
                            f"{self.ds[device]['util']['mem_util_rate']}%",
                            f"{self.ds[device]['mem']['mem_used'] / 1024 ** 2}MB",
                            f"{self.ds[device]['mem']['mem_total'] / 1024 ** 2}MB"])
-        # self.devices_text.set_text(f'{self.now.strftime("%Y-%m-%d %H:%M:%S")}\n{table.draw()}')
         self.devices_text.set_text(table.draw())
 
 
@@ -86,25 +98,38 @@ class LogsBox(urwid.WidgetWrap):
             'logs_title'
         )
         super().__init__(self.logs_body)
+        self.logs = deque(maxlen=256)
+
+    def log(self, time, msg):
+        self.logs.append(f'[{time.strftime("%Y-%m-%d %H:%M:%S,%f")}] {msg}')
+
+    def refresh(self):
+        text = '\n'.join(reversed(self.logs))
+        self.logs_text.body.set_text(text)
 
 
 class TorchStressTUI(urwid.WidgetWrap):
-    def __init__(self, queue: multiprocessing.Queue):
-        self.queue = queue
+    def __init__(self, status_queue: multiprocessing.Queue):
+        self.status_queue = status_queue
         self.devices_box = DeviceInfoBox()
         self.logs_box = LogsBox()
         self.layout = urwid.Frame(header=self.devices_box, body=self.logs_box)
         super().__init__(self.layout)
 
     def refresh(self, loop, _user_data):
-        while not self.queue.empty():
+        # TODO possibly capture stderr/stdout from all child processes and it display here?
+        while not self.status_queue.empty():
             # handle message
-            header, content = self.queue.get()
-            # if isinstance(header, datetime):
-            #     logging.info()
+            header, content = self.status_queue.get()
+            if isinstance(header, datetime):
+                logging.info(f'[{header.timestamp()}] {content}')
+                # TODO replace with an additional logging handler?
+                self.logs_box.log(header, content)
+            elif isinstance(header, int):
+                self.devices_box.update_stress_stats(header, content)                
         self.devices_box.refresh()
-        # self.logs_box.refresh()
-        loop.set_alarm_in(1.0, self.refresh)
+        self.logs_box.refresh()
+        loop.set_alarm_in(REFRESH_RATE, self.refresh)
 
     def handle(self, key):
         if key in ('q', 'Q'):
@@ -114,7 +139,8 @@ class TorchStressTUI(urwid.WidgetWrap):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-r', '--runtime', default=360.0, type=float, help='Stress test runtime length.')
-    # TODO add batch size argument (instead of determining a large batch size automatically)
+    # TODO add a parameter for the number of stress processes per device
+    # TODO add batch size argument (instead of determining the batch size automatically)
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -129,14 +155,14 @@ def main():
 
     try:
         nvml_init()
-        processes, queue = spawn_stress_processes(args)
-        tui = TorchStressTUI(queue)
+        processes, status_queue, stop_queue = spawn_stress_processes(args)
+        tui = TorchStressTUI(status_queue)
         main_loop = urwid.MainLoop(tui, palette=palette, unhandled_input=tui.handle)
         main_loop.set_alarm_in(1.0, tui.refresh)
         main_loop.run()
     finally:
         nvml_shutdown()
-        stop_stress_processes(processes)
+        terminate_stress_processes(processes, stop_queue)
 
 
 if __name__ == '__main__':
