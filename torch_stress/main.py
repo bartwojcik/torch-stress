@@ -3,7 +3,6 @@ import logging
 import multiprocessing
 from collections import deque
 from datetime import datetime
-from typing import List
 
 import urwid
 from texttable import Texttable
@@ -19,7 +18,6 @@ palette = [
     ('logs_title', 'yellow', ''),
     ('logs', 'white', ''),
 ]
-
 
 REFRESH_RATE = 0.5
 
@@ -61,14 +59,14 @@ class DeviceInfoBox(urwid.WidgetWrap):
     def update_stress_stats(self, device: int, errors: int):
         self.ds[device]['errors'] += errors
         self.ds[device]['last_updated'] = datetime.now()
-        
 
     def refresh(self):
         self.update_readings()
         table = Texttable()
         table.set_max_width(max_width=120)
         table.set_deco(Texttable.HEADER | Texttable.HLINES | Texttable.VLINES)
-        header = ['GPU', 'Errors', 'Last update', 'Temp', 'Slowdown Temp', 'GPU util', 'mem util', 'mem used', 'mem total']
+        header = ['GPU', 'Errors', 'Last update', 'Temp', 'Slowdown Temp', 'GPU util', 'mem util', 'mem used',
+                  'mem total']
         table.header(header)
         table.set_cols_align(['c'] * len(header))
         table.set_cols_valign(['m'] * len(header))
@@ -126,7 +124,7 @@ class TorchStressTUI(urwid.WidgetWrap):
                 # TODO replace with an additional logging handler?
                 self.logs_box.log(header, content)
             elif isinstance(header, int):
-                self.devices_box.update_stress_stats(header, content)                
+                self.devices_box.update_stress_stats(header, content)
         self.devices_box.refresh()
         self.logs_box.refresh()
         loop.set_alarm_in(REFRESH_RATE, self.refresh)

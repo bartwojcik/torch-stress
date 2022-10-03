@@ -2,12 +2,10 @@ import argparse
 import logging
 import multiprocessing
 import os
-import sys
 from queue import Empty
 
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 
-from copy import deepcopy
 from datetime import datetime, timedelta
 from multiprocessing import Process
 from typing import Tuple, List
@@ -58,8 +56,10 @@ def generate_inputs(batch_size: int, input_size: Tuple[int], num_classes: int) -
     return inputs, labels
 
 
-def stress_by_training(process_ind: int, device_ind: int, model: torch.nn.Module, inputs: torch.Tensor, labels: torch.Tensor,
-                       cpu_outputs: torch.Tensor, status_queue: multiprocessing.Queue, stop_queue: multiprocessing.Queue,
+def stress_by_training(process_ind: int, device_ind: int, model: torch.nn.Module, inputs: torch.Tensor,
+                       labels: torch.Tensor,
+                       cpu_outputs: torch.Tensor, status_queue: multiprocessing.Queue,
+                       stop_queue: multiprocessing.Queue,
                        stop_time: datetime):
     device = torch.device(f'cuda:{device_ind}')
     device_inputs = inputs.to(device)
@@ -70,7 +70,8 @@ def stress_by_training(process_ind: int, device_ind: int, model: torch.nn.Module
     errors = torch.isclose(cpu_outputs, saved_outputs, atol=5e-4, rtol=0.0).logical_not().sum().item()
     max_abs_error = (cpu_outputs - saved_outputs).abs().max()
     status_queue.put((device_ind, errors))
-    status_queue.put((datetime.now(), f'Got {errors} errors from the CPU vs device {device_ind} test. Max absolute error is: {max_abs_error}'))
+    status_queue.put((datetime.now(),
+                      f'Got {errors} errors from the CPU vs device {device_ind} test. Max absolute error is: {max_abs_error}'))
     del cpu_outputs
     # device stability device test
     while True:
@@ -82,12 +83,14 @@ def stress_by_training(process_ind: int, device_ind: int, model: torch.nn.Module
         errors = (outputs != saved_outputs).sum().item()
         status_queue.put((device_ind, errors))
         if datetime.now() > stop_time:
-            status_queue.put((datetime.now(), f'Runtime limit for process {process_ind} (device {device_ind}) reached - terminating.'))
+            status_queue.put((datetime.now(),
+                              f'Runtime limit for process {process_ind} (device {device_ind}) reached - terminating.'))
             break
         else:
             try:
                 stop_queue.get_nowait()
-                status_queue.put((datetime.now(), f'Stop signal received for process {process_ind} (device {device_ind}) - terminating.'))
+                status_queue.put((datetime.now(),
+                                  f'Stop signal received for process {process_ind} (device {device_ind}) - terminating.'))
                 break
             except Empty:
                 pass
@@ -103,7 +106,8 @@ def stress(process_ind: int, device_ind: int, cpu_model: torch.nn.Module,
     status_queue.put((datetime.now(), f'Selected batch size {max_bs} for process {process_ind} (device {device_ind}).'))
     exemplary_inputs, labels = generate_inputs(max_bs, input_size, num_classes)
     cpu_outputs = cpu_model(exemplary_inputs)
-    stress_by_training(process_ind, device_ind, device_model, exemplary_inputs, labels, cpu_outputs, status_queue, stop_queue, stop_time)
+    stress_by_training(process_ind, device_ind, device_model, exemplary_inputs, labels, cpu_outputs, status_queue,
+                       stop_queue, stop_time)
 
 
 def spawn_stress_processes(args: argparse.Namespace) -> Tuple[List[multiprocessing.Process], multiprocessing.Queue]:
@@ -115,7 +119,8 @@ def spawn_stress_processes(args: argparse.Namespace) -> Tuple[List[multiprocessi
     cpu_model, input_size, num_classes = get_model()
     cpu_model.share_memory()
     exemplary_input, labels = generate_inputs(1, input_size, num_classes)
-    assert (cpu_model(exemplary_input).detach() != cpu_model(exemplary_input).detach()).sum().item() == 0, f'Even the CPU model is nondeterministic!'
+    assert (cpu_model(exemplary_input).detach() != cpu_model(
+        exemplary_input).detach()).sum().item() == 0, f'Even the CPU model is nondeterministic!'
     logging.info('Starting the stress processes.')
     now = datetime.now()
     stop_time = now + timedelta(seconds=args.runtime)
@@ -128,7 +133,7 @@ def spawn_stress_processes(args: argparse.Namespace) -> Tuple[List[multiprocessi
     for p in processes:
         p.start()
     return processes, status_queue, stop_queue
-    
+
 
 def terminate_stress_processes(processes: List[multiprocessing.Process], stop_queue: multiprocessing.Queue):
     for _ in range(len(processes)):
