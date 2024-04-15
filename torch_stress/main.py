@@ -165,3 +165,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    # the spawned process may be killed if there is not enough main system memory, and the tool fails silently
+    # (we run the model on CPU to verify outputs)
+    # TODO monitor the child processes for this and inform the user
